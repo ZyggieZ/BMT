@@ -92,7 +92,9 @@ if not discord.opus.is_loaded():
             print(f"Failed to load Opus: {e}", flush=True)
 
 # Patch discord.py's DAVE protocol handler so MLS key transition executes properly
+import discord.voice_state
 orig_received_binary = DiscordVoiceWebSocket.received_binary_message
+orig_execute_transition = discord.voice_state.VoiceConnectionState._execute_transition
 
 async def patched_received_binary(self, msg: bytes):
     op = msg[2]
@@ -103,14 +105,41 @@ async def patched_received_binary(self, msg: bytes):
             state.dave_session.process_commit(msg[5:])
             state.dave_session.prepare_transition(transition_id, state.dave_protocol_version)
             state.dave_session.execute_transition(transition_id)
-            print(f"DAVE E2EE Handshake Complete! can_encrypt={state.dave_session.can_encrypt}", flush=True)
+            if transition_id != 0:
+                state.dave_pending_transitions[transition_id] = state.dave_protocol_version
+                await self.send_transition_ready(transition_id)
+            print(f"DAVE E2EE Handshake (Commit) Complete! can_encrypt={state.dave_session.can_encrypt}", flush=True)
         except Exception as e:
-            print(f"DAVE transition error: {e}", flush=True)
+            print(f"DAVE commit error: {e}", flush=True)
+        return
+    elif op == self.MLS_WELCOME:
+        transition_id = struct.unpack_from(">H", msg, 3)[0]
+        try:
+            state.dave_session.process_welcome(msg[5:])
+            state.dave_session.prepare_transition(transition_id, state.dave_protocol_version)
+            state.dave_session.execute_transition(transition_id)
+            if transition_id != 0:
+                state.dave_pending_transitions[transition_id] = state.dave_protocol_version
+                await self.send_transition_ready(transition_id)
+            print(f"DAVE E2EE Handshake (Welcome) Complete! can_encrypt={state.dave_session.can_encrypt}", flush=True)
+        except Exception as e:
+            print(f"DAVE welcome error: {e}", flush=True)
         return
 
     await orig_received_binary(self, msg)
 
+async def patched_execute_transition(self, transition_id: int):
+    if self.dave_session:
+        try:
+            self.dave_session.prepare_transition(transition_id, self.dave_protocol_version)
+            self.dave_session.execute_transition(transition_id)
+            print(f"DAVE _execute_transition Complete! can_encrypt={self.dave_session.can_encrypt}", flush=True)
+        except Exception as e:
+            pass
+    await orig_execute_transition(self, transition_id)
+
 DiscordVoiceWebSocket.received_binary_message = patched_received_binary
+discord.voice_state.VoiceConnectionState._execute_transition = patched_execute_transition
 
 # Load token from .env if present
 token = os.getenv("DISCORD_BOT_TOKEN")
@@ -575,12 +604,17 @@ async def play_sound_effect(guild: discord.Guild, sound_key: str, voice_channel:
         return False
 
     vc = guild.voice_client
-    if not vc:
-        vc = await voice_channel.connect()
-        for _ in range(12):
-            if vc._connection.can_encrypt:
+    if not vc or not vc.is_connected():
+        if vc:
+            try:
+                await vc.disconnect(force=True)
+            except Exception:
+                pass
+        vc = await voice_channel.connect(reconnect=True)
+        for _ in range(15):
+            if vc._connection and vc._connection.can_encrypt:
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.4)
     elif vc.channel != voice_channel:
         await vc.move_to(voice_channel)
 
@@ -908,15 +942,32 @@ async def play_command(interaction: discord.Interaction, query: str):
             await reply_safe(interaction, f"❌ I don't have permission to **Speak** in {voice_channel.name}! Please allow Speak in channel permissions.")
             return
 
-        if not voice_client:
-            voice_client = await voice_channel.connect()
+        if not voice_client or not voice_client.is_connected():
+            if voice_client:
+                try:
+                    await voice_client.disconnect(force=True)
+                except Exception:
+                    pass
+            voice_client = await voice_channel.connect(reconnect=True)
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
 
-        for _ in range(12):
-            if voice_client._connection.can_encrypt:
+        for _ in range(15):
+            if voice_client._connection and voice_client._connection.can_encrypt:
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.4)
+
+        if not voice_client._connection.can_encrypt:
+            print("Notice: can_encrypt is False after initial wait, refreshing voice connection...", flush=True)
+            try:
+                await voice_client.disconnect(force=True)
+            except Exception:
+                pass
+            voice_client = await voice_channel.connect(reconnect=True)
+            for _ in range(15):
+                if voice_client._connection and voice_client._connection.can_encrypt:
+                    break
+                await asyncio.sleep(0.4)
 
         song_info = await bot.loop.run_in_executor(None, lambda: get_audio_info(query))
         if not song_info or not song_info.get("url"):
