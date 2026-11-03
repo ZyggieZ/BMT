@@ -426,7 +426,7 @@ def get_audio_info(query: str) -> dict | None:
 
 class MusicControlView(discord.ui.View):
     """Interactive Discord buttons for music playback control."""
-    def __init__(self, guild_id: int):
+    def __init__(self, guild_id: int | None = None):
         super().__init__(timeout=None)
         self.guild_id = guild_id
 
@@ -436,21 +436,30 @@ class MusicControlView(discord.ui.View):
         if not vc:
             await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
             return
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("❌ You must be in a voice channel to use the controls!", ephemeral=True)
+            return
         if vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("⏸️ Playback paused.", ephemeral=True)
+            await interaction.response.send_message(f"⏸️ **{interaction.user.display_name}** paused playback.")
         elif vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("▶️ Playback resumed.", ephemeral=True)
+            await interaction.response.send_message(f"▶️ **{interaction.user.display_name}** resumed playback.")
         else:
             await interaction.response.send_message("❌ Nothing is currently playing.", ephemeral=True)
 
     @discord.ui.button(label="Skip", emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="m_skip")
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc = interaction.guild.voice_client
+        if not vc:
+            await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
+            return
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("❌ You must be in a voice channel to use the controls!", ephemeral=True)
+            return
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
-            await interaction.response.send_message("⏭️ Skipped current song.", ephemeral=True)
+            await interaction.response.send_message(f"⏭️ **{interaction.user.display_name}** skipped the current song.")
         else:
             await interaction.response.send_message("❌ Nothing is currently playing.", ephemeral=True)
 
@@ -459,7 +468,7 @@ class MusicControlView(discord.ui.View):
         queue = music_queues.get(interaction.guild.id, [])
         if len(queue) > 1:
             random.shuffle(queue)
-            await interaction.response.send_message(f"🔀 Shuffled **{len(queue)}** songs in the queue!", ephemeral=True)
+            await interaction.response.send_message(f"🔀 **{interaction.user.display_name}** shuffled **{len(queue)}** songs in the queue!")
         else:
             await interaction.response.send_message("ℹ️ Need at least 2 songs in the queue to shuffle.", ephemeral=True)
 
@@ -494,13 +503,16 @@ class MusicControlView(discord.ui.View):
     @discord.ui.button(label="Stop", emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="m_stop")
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc = interaction.guild.voice_client
-        if vc:
-            music_queues[interaction.guild.id] = []
-            current_songs.pop(interaction.guild.id, None)
-            await vc.disconnect()
-            await interaction.response.send_message("⏹️ Playback stopped and left voice channel.", ephemeral=True)
-        else:
+        if not vc:
             await interaction.response.send_message("❌ The bot is not in a voice channel.", ephemeral=True)
+            return
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("❌ You must be in a voice channel to use the controls!", ephemeral=True)
+            return
+        music_queues[interaction.guild.id] = []
+        current_songs.pop(interaction.guild.id, None)
+        await vc.disconnect()
+        await interaction.response.send_message(f"⏹️ **{interaction.user.display_name}** stopped playback and left the voice channel.")
 
     @discord.ui.button(label="Vol -", emoji="🔉", style=discord.ButtonStyle.secondary, row=1, custom_id="m_vol_down")
     async def vol_down(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -510,7 +522,7 @@ class MusicControlView(discord.ui.View):
         vc = interaction.guild.voice_client
         if vc and vc.source:
             vc.source.volume = new_vol
-        await interaction.response.send_message(f"🔉 Volume decreased to **{int(new_vol * 100)}%**", ephemeral=True)
+        await interaction.response.send_message(f"🔉 **{interaction.user.display_name}** decreased volume to **{int(new_vol * 100)}%**")
 
     @discord.ui.button(label="Vol +", emoji="🔊", style=discord.ButtonStyle.secondary, row=1, custom_id="m_vol_up")
     async def vol_up(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -520,7 +532,7 @@ class MusicControlView(discord.ui.View):
         vc = interaction.guild.voice_client
         if vc and vc.source:
             vc.source.volume = new_vol
-        await interaction.response.send_message(f"🔊 Volume increased to **{int(new_vol * 100)}%**", ephemeral=True)
+        await interaction.response.send_message(f"🔊 **{interaction.user.display_name}** increased volume to **{int(new_vol * 100)}%**")
 
 def play_next_song(guild: discord.Guild, channel: discord.TextChannel):
     """Plays the next song in the guild queue, or disconnects if queue is empty."""
@@ -644,7 +656,13 @@ class SoundSelectDropdown(discord.ui.Select):
             )
             for key, data in AVAILABLE_SOUNDS.items()
         ]
-        super().__init__(placeholder="🔊 Select a sound to play in voice...", min_values=1, max_values=1, options=options)
+        super().__init__(
+            placeholder="🔊 Select a sound to play in voice...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="sb_select_dropdown"
+        )
 
     async def callback(self, interaction: discord.Interaction):
         if not interaction.user.voice or not interaction.user.voice.channel:
@@ -672,19 +690,19 @@ class SoundboardView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(SoundSelectDropdown())
 
-    @discord.ui.button(label="Vine Boom", emoji="💥", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Vine Boom", emoji="💥", style=discord.ButtonStyle.danger, row=1, custom_id="sb_vine_boom")
     async def btn_vine_boom(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._play_quick(interaction, "vine_boom")
 
-    @discord.ui.button(label="MLG Airhorn", emoji="📢", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="MLG Airhorn", emoji="📢", style=discord.ButtonStyle.primary, row=1, custom_id="sb_airhorn")
     async def btn_airhorn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._play_quick(interaction, "airhorn")
 
-    @discord.ui.button(label="Bruh", emoji="🗿", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Bruh", emoji="🗿", style=discord.ButtonStyle.secondary, row=1, custom_id="sb_bruh")
     async def btn_bruh(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._play_quick(interaction, "bruh")
 
-    @discord.ui.button(label="Metal Pipe", emoji="🥢", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Metal Pipe", emoji="🥢", style=discord.ButtonStyle.secondary, row=1, custom_id="sb_metal_pipe")
     async def btn_metal_pipe(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._play_quick(interaction, "metal_pipe")
 
@@ -696,7 +714,7 @@ class SoundboardView(discord.ui.View):
         success = await play_sound_effect(interaction.guild, sound_key, interaction.user.voice.channel)
         if success:
             await interaction.response.send_message(
-                f"{sound_data['emoji']} Played **{sound_data['name']}**!",
+                f"{sound_data['emoji']} **{interaction.user.display_name}** played **{sound_data['name']}**!",
                 ephemeral=False
             )
         else:
@@ -714,6 +732,10 @@ async def on_ready():
 
     load_saved_timers()
     load_saved_reminders()
+
+    # Register persistent views so buttons work across restarts
+    bot.add_view(MusicControlView())
+    bot.add_view(SoundboardView())
 
     try:
         synced = await bot.tree.sync()
