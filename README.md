@@ -93,3 +93,9 @@ Play meme sound effects directly in your voice call. If music is playing, the bo
 
 ## 🛡️ Single-Instance Process Lock
 The bot enforces a kernel file lock (`bot.lock`). Attempting to start a second instance will automatically abort with an error to prevent duplicate Discord interaction conflicts.
+
+---
+
+## 🤝 Collaboration & Contributors
+
+Developed in collaboration with [@Cappuccino-san](https://github.com/Cappuccino-san) and [@ZyggieZ](https://github.com/ZyggieZ).
