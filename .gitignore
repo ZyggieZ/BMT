@@ -1,0 +1,27 @@
+# Environment & secrets
+.env
+*.env
+*.token
+
+# Logo and Image files (no media in repo)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.ico
+*.svg
+
+# Instance lock, persistence & data
+*.lock
+timers.json
+reminders.json
+sounds/
+*.mp3
+
+# Python cache & virtual environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
