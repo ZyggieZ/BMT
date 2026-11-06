@@ -14,6 +14,23 @@ from discord.gateway import DiscordVoiceWebSocket
 import imageio_ffmpeg
 import yt_dlp
 
+# Configure certifi SSL certificates
+try:
+    import certifi
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+except Exception:
+    pass
+
+# Ensure Deno runtime is accessible for yt-dlp JavaScript challenge solver
+deno_candidates = [
+    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe"),
+    os.path.expandvars(r"%USERPROFILE%\.deno\bin"),
+    r"C:\Program Files\deno",
+]
+for p in deno_candidates:
+    if os.path.exists(p) and p not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+
 # Set UTF-8 encoding for stdout
 if sys.stdout.encoding != "utf-8":
     try:
@@ -390,10 +407,16 @@ YTDL_OPTIONS = {
     "quiet": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
+    "remote_components": ["ejs:github"],
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web"]
+        }
+    },
 }
 
 FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1",
     "options": "-vn",
 }
 
