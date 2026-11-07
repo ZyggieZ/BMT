@@ -17,6 +17,11 @@ A Discord bot featuring multi-timer countdowns, smart scheduled reminders, music
    pip install -r requirements.txt
    ```
 
+   > **Note on YouTube Playback**: `yt-dlp` requires a JavaScript runtime (such as [Deno](https://deno.land)) to solve YouTube player challenges. On Windows, install Deno with:
+   > ```bash
+   > winget install --id DenoLand.Deno
+   > ```
+
 3. **Configure Environment Variables**:
    Copy `.env.example` to `.env` and paste your Discord bot token:
    ```env
